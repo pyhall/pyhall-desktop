@@ -86,6 +86,11 @@ function updateConnectionUI(online, data = {}) {
   window.AppState.hallOnline = (state === 'online');
   window.AppState.hallState  = state;
   window.AppState.loggedIn   = data.logged_in || false;
+  // Cache github_login from health response so status screen can display it
+  if (data.github_login && !window.AppState.githubLogin) {
+    window.AppState.githubLogin = data.github_login;
+    window.AppState.githubAvatar = `https://github.com/${data.github_login}.png`;
+  }
 
   const indicator = document.getElementById('hall-indicator');
   const indicatorLabel = document.getElementById('hall-indicator-label');
@@ -105,6 +110,7 @@ function updateConnectionUI(online, data = {}) {
 
   // Update dropdown options based on state
   _updateRestartDropdown(state, data);
+  if (window._updateServerBtns) window._updateServerBtns(state);
 
   // Status bar counters
   if (state === 'online') {
@@ -151,6 +157,79 @@ function updateAlertBadge(count) {
 
 window.updateAlertBadge = updateAlertBadge;
 window.updateConnectionUI = updateConnectionUI;
+window.navigateTo = navigateTo;
+
+// ─── Start / Stop Hall Server ───────────────────────────────────────────────
+
+(function wireServerStartStop() {
+  const startBtn = document.getElementById('btn-start-server');
+  const stopBtn  = document.getElementById('btn-stop-server');
+  const msgEl    = document.getElementById('status-server-start-msg');
+
+  // Show Start when offline, Stop when server was started by us
+  window._serverStartedByUs = false;
+
+  window._updateServerBtns = function(state) {
+    if (!startBtn) return;
+    const isOffline = (state === 'offline');
+    const isRunning = (state === 'locked' || state === 'ready' || state === 'online');
+    // Show Start when offline; show Restart when server is running
+    startBtn.style.display = (isOffline || isRunning) ? '' : 'none';
+    startBtn.textContent = isOffline ? 'Start Hall Server' : 'Restart Server';
+    stopBtn.style.display = (isRunning && window._serverStartedByUs) ? '' : 'none';
+  };
+
+  startBtn?.addEventListener('click', async () => {
+    const cfg = window.AppState?.config || {};
+    const cmd = cfg.server_start_cmd || 'pyhall start';
+    const wasLabel = startBtn.textContent;
+    startBtn.disabled = true;
+    startBtn.textContent = wasLabel === 'Restart Server' ? 'Restarting…' : 'Starting…';
+    if (msgEl) { msgEl.textContent = `Running: ${cmd}`; msgEl.style.display = ''; }
+
+    try {
+      await window.__TAURI__.core.invoke('start_hall_server', { cmd });
+      window._serverStartedByUs = true;
+
+      // Poll until server responds (up to 15s)
+      let attempts = 0;
+      const check = setInterval(async () => {
+        attempts++;
+        try {
+          const r = await fetch(`${window.AppState?.hallUrl || 'http://localhost:8765'}/api/health`);
+          if (r.ok) {
+            clearInterval(check);
+            if (msgEl) msgEl.style.display = 'none';
+            startBtn.disabled = false;
+            window.pollHall && window.pollHall();
+          }
+        } catch (_) {}
+        if (attempts >= 15) {
+          clearInterval(check);
+          startBtn.disabled = false;
+          startBtn.textContent = wasLabel;
+          if (msgEl) { msgEl.textContent = 'Server did not respond after 15s. Check config.'; }
+        }
+      }, 1000);
+
+    } catch (e) {
+      startBtn.disabled = false;
+      startBtn.textContent = wasLabel;
+      if (msgEl) { msgEl.textContent = `Error: ${e}`; msgEl.style.display = ''; }
+    }
+  });
+
+  stopBtn?.addEventListener('click', async () => {
+    try {
+      await window.__TAURI__.core.invoke('stop_hall_server');
+      window._serverStartedByUs = false;
+      if (msgEl) { msgEl.textContent = 'Server stopped.'; msgEl.style.display = ''; setTimeout(() => { if (msgEl) msgEl.style.display = 'none'; }, 3000); }
+      window.pollHall && window.pollHall();
+    } catch (e) {
+      if (msgEl) { msgEl.textContent = `Stop error: ${e}`; msgEl.style.display = ''; }
+    }
+  });
+})();
 
 // ─── Hall indicator click → restart dropdown ────────────────────────────────
 
@@ -201,18 +280,13 @@ window.updateConnectionUI = updateConnectionUI;
 
     try {
       await fetch(`${url}/api/server/restart`, { method: 'POST' });
-    } catch (_) { /* expected — server is restarting */ }
-
-    // Poll until server comes back (up to 30s)
-    let attempts = 0;
-    const check = setInterval(async () => {
-      attempts++;
-      if (attempts > 30) { clearInterval(check); return; }
-      try {
-        const r = await fetch(`${url}/api/health`);
-        if (r.ok) { clearInterval(check); window.pollHall && window.pollHall(); }
-      } catch (_) { /* still restarting */ }
-    }, 1000);
+    } catch (_) {}
+    window.AppState.sessionToken = null;
+    window.AppState.githubLogin  = null;
+    window.AppState.githubAvatar = null;
+    const gate = document.getElementById('login-gate');
+    if (gate) gate.style.display = 'flex';
+    window.pollHall && window.pollHall();
   });
 
   // Logout only (no restart)
@@ -221,6 +295,11 @@ window.updateConnectionUI = updateConnectionUI;
     dropdown.classList.add('hidden');
     const url = window.AppState.hallUrl || 'http://localhost:8765';
     try { await fetch(`${url}/api/auth/logout`, { method: 'POST' }); } catch (_) {}
+    window.AppState.sessionToken = null;
+    window.AppState.githubLogin  = null;
+    window.AppState.githubAvatar = null;
+    const gate = document.getElementById('login-gate');
+    if (gate) gate.style.display = 'flex';
     window.pollHall && window.pollHall();
   });
 
@@ -232,7 +311,16 @@ window.updateConnectionUI = updateConnectionUI;
     const lbl = document.getElementById('hall-indicator-label');
     if (lbl) lbl.textContent = 'ACTIVATING...';
     try {
-      const r = await fetch(`${url}/api/server/go-online`, { method: 'POST' });
+      // Include desktop binary hash in attestation chain
+      const body = {};
+      if (window.AppState.desktopBinaryHash) {
+        body.desktop_hash = window.AppState.desktopBinaryHash;
+      }
+      const r = await fetch(`${url}/api/server/go-online`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
       const d = await r.json();
       if (!d.ok) alert(`Cannot go online: ${d.message}`);
     } catch (_) {}
@@ -257,12 +345,19 @@ async function pollHall() {
   try {
     const status = await HallAPI.getHallStatus(url);
 
-    const online = status.online === true;
-    updateConnectionUI(online, status);
+    // HTTP succeeded — server is reachable.
+    // Map server-internal "offline" state (not registry-connected) to "locked"
+    // so the UI state machine reflects reachability correctly.
+    // "offline" in the UI is reserved for when the HTTP call fails entirely.
+    if (!status.state || status.state === 'offline') {
+      status.state = 'locked';
+    }
+    const online = (status.state === 'online');
+    updateConnectionUI(true, status);
 
     // Forward status to status screen
     if (window.StatusScreen) {
-      window.StatusScreen.onStatusUpdate(status, online);
+      window.StatusScreen.onStatusUpdate(status, true);
     }
 
     // Poll alerts for badge update — 0 when offline, no mock fallback
@@ -356,10 +451,39 @@ function setPassphraseGate(show) {
 function onLoginConfirmed() {
   setLoginGate(false);
 
+  // Fetch GitHub identity to display on the passphrase gate.
+  _fetchAndShowIdentity();
+
   // Check if Hall Server has passphrase protection enabled.
   // If the server returns {passphrase_set: false}, go straight to set form.
   // If {passphrase_set: true} (or unknown), show unlock form.
   _showPassphraseGate();
+}
+
+async function _fetchAndShowIdentity() {
+  const token = window.AppState?.sessionToken;
+  if (!token) return;
+  // Route through local Hall server proxy to avoid CORS issues calling registry directly.
+  const hallUrl = window.AppState?.hallUrl || 'http://localhost:8765';
+  try {
+    const r = await fetch(`${hallUrl}/api/profile`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if (!r.ok) return;
+    const d = await r.json();
+    const login = (d.profile?.github_login) || d.github_login;
+    if (!login) return;
+    const avatarEl = document.getElementById('passphrase-avatar');
+    const loginEl  = document.getElementById('passphrase-github-login');
+    if (avatarEl) {
+      avatarEl.src = `https://github.com/${login}.png?size=72`;
+      avatarEl.style.display = 'block';
+    }
+    if (loginEl) loginEl.textContent = login;
+    // Store for use elsewhere (status screen, profile screen)
+    window.AppState.githubLogin = login;
+    window.AppState.githubAvatar = `https://github.com/${login}.png`;
+  } catch (_) {}
 }
 
 // Tracks whether the passphrase was unset when the gate was shown.
@@ -370,7 +494,8 @@ async function _showPassphraseGate() {
   const hallUrl = window.AppState?.hallUrl || 'http://localhost:8765';
 
   // Try to ask the server whether a passphrase has been set.
-  let passphraseSet = true; // default: assume yes, show unlock form
+  // Default: assume first run (show set form). Only show unlock if server explicitly confirms passphrase_set: true.
+  let passphraseSet = false;
   try {
     const r = await fetch(`${hallUrl}/api/auth/passphrase-status`, {
       headers: window.AppState.sessionToken
@@ -379,7 +504,7 @@ async function _showPassphraseGate() {
     });
     if (r.ok) {
       const d = await r.json();
-      passphraseSet = d.passphrase_set !== false; // false only if explicitly false
+      passphraseSet = d.passphrase_set === true;
     }
   } catch (_) {}
 
@@ -458,7 +583,7 @@ window.onPassphraseAccepted = onPassphraseAccepted;
     let attempts = 0;
     _loginPollInterval = setInterval(async () => {
       attempts++;
-      if (attempts > 90) {
+      if (attempts > 30) {  // 60s timeout — reset so user can retry
         clearInterval(_loginPollInterval);
         btn.disabled = false;
         btn.textContent = 'Sign in with GitHub';
@@ -597,18 +722,15 @@ window.updateConnectionUI = function(online, data = {}) {
   // Sync login gate button state with Hall availability
   const btn  = document.getElementById('btn-login-gate-github');
   const hint = document.getElementById('login-gate-hall-warn');
-  const sub  = btn?.parentElement?.querySelector('div:last-of-type');
   if (!btn) return;
 
-  if (online) {
-    btn.disabled = false;
-    if (hint) hint.style.display = 'none';
-    if (sub) sub.textContent = '';
-  } else {
-    btn.disabled = true;
-    if (hint) hint.style.display = 'block';
-    if (sub) sub.textContent = 'Hall Server is offline.';
-  }
+  // OAuth requires Hall Server to be running: it receives the GitHub callback at
+  // localhost:8765/api/auth/callback. If server is offline, the browser would hit
+  // ERR_CONNECTION_REFUSED and the one-time code expires before we can claim it.
+  const hallReachable = (online && ['locked', 'ready', 'online'].includes(data.state || 'locked'));
+  btn.disabled = !hallReachable;
+  btn.title = hallReachable ? '' : 'Start Hall Server before signing in';
+  if (hint) hint.style.display = hallReachable ? 'none' : '';
 };
 
 // ─── Startup ───────────────────────────────────────────────────────────────
@@ -640,6 +762,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     const cfgUrl = document.getElementById('cfg-hall-url');
     if (cfgUrl) cfgUrl.value = window.AppState.hallUrl;
   } catch (_) {}
+
+  // Compute desktop binary hash for attestation chain.
+  // Stored in AppState; passed to Hall Server on Go Online.
+  // Non-critical — failure is silent and attestation proceeds without it.
+  if (window.__TAURI__?.core?.invoke) {
+    try {
+      const hashResult = await window.__TAURI__.core.invoke('get_desktop_binary_hash');
+      window.AppState.desktopBinaryHash = hashResult?.hash || null;
+    } catch (_) {
+      window.AppState.desktopBinaryHash = null;
+    }
+  }
 
   // Check if a token already exists from a previous navigation (e.g. OAuth callback)
   const alreadyAuthed = await checkPendingAuth();
