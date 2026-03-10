@@ -12,18 +12,27 @@
 <div id="login-gate" style="position:fixed;inset:0;z-index:9999;background:var(--bg-primary);display:flex;align-items:center;justify-content:center;">
   <div id="login-gate-box" style="width:360px;background:var(--bg-surface);border:1px solid var(--bg-border);border-radius:var(--radius);padding:40px 36px;text-align:center;">
     <div style="font-size:18px;font-weight:700;color:var(--text-bright);letter-spacing:0.02em;margin-bottom:6px;">pyhall — Hall Monitor</div>
-    <div style="font-size:12px;color:var(--text-muted);margin-bottom:32px;">The Hall · every worker · every job · every decision.</div>
-    <div id="login-gate-hall-warn" style="display:none;margin-bottom:16px;padding:8px 12px;background:var(--error-muted);border:1px solid var(--error);border-radius:var(--radius-sm);font-size:11px;color:var(--error);">Hall Server must be running to complete sign-in.</div>
-    <button id="btn-login-gate-github" style="width:100%;padding:10px 0;background:var(--accent-blue);color:#fff;border:none;border-radius:var(--radius);font-size:13px;font-weight:600;cursor:pointer;letter-spacing:0.01em;" disabled>Sign in with GitHub</button>
-    <div style="margin-top:12px;font-size:11px;color:var(--text-dim);">Checking Hall Server...</div>
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:32px;">Sign in to monitor and govern your AI workers.</div>
+    <button id="btn-login-gate-github" style="width:100%;padding:10px 0;background:var(--accent-blue);color:#fff;border:none;border-radius:var(--radius);font-size:13px;font-weight:600;cursor:pointer;letter-spacing:0.01em;">Sign in with GitHub</button>
+    <div id="login-gate-hall-warn" style="display:none;margin-top:12px;font-size:11px;color:var(--text-dim);"></div>
   </div>
 </div>
 
 <!-- ── Passphrase Gate (shown after login, before full app) ─────────────── -->
 <div id="passphrase-gate" style="position:fixed;inset:0;z-index:9998;background:var(--bg-primary);display:none;align-items:center;justify-content:center;">
-  <div style="width:360px;background:var(--bg-surface);border:1px solid var(--bg-border);border-radius:var(--radius);padding:40px 36px;">
+  <div style="width:360px;background:var(--bg-surface);border:1px solid var(--bg-border);border-radius:var(--radius);padding:36px 36px 32px;">
 
-    <!-- Unlock form (default) -->
+    <!-- GitHub identity (shown after login) -->
+    <div id="passphrase-identity" style="display:flex;align-items:center;gap:12px;margin-bottom:28px;padding-bottom:20px;border-bottom:1px solid var(--bg-border);">
+      <img id="passphrase-avatar" src="" alt="" width="36" height="36"
+        style="border-radius:50%;border:1px solid var(--bg-border);display:none;" />
+      <div>
+        <div id="passphrase-github-login" style="font-size:13px;font-weight:600;color:var(--text-bright);"></div>
+        <div style="font-size:11px;color:var(--text-muted);">Signed in with GitHub</div>
+      </div>
+    </div>
+
+    <!-- Unlock form (returning user) -->
     <div id="passphrase-unlock-form">
       <div style="font-size:15px;font-weight:700;color:var(--text-bright);margin-bottom:6px;">Unlock your Hall</div>
       <div style="font-size:12px;color:var(--text-muted);margin-bottom:24px;">Enter your passphrase to continue.</div>
@@ -44,10 +53,10 @@
       </div>
     </div>
 
-    <!-- Set passphrase form (first-time / no passphrase set) -->
+    <!-- Set passphrase form (first-time setup) -->
     <div id="passphrase-set-form" style="display:none;">
-      <div style="font-size:15px;font-weight:700;color:var(--text-bright);margin-bottom:6px;">Set a passphrase</div>
-      <div style="font-size:12px;color:var(--text-muted);margin-bottom:24px;">Choose a passphrase to protect your Hall session.</div>
+      <div style="font-size:15px;font-weight:700;color:var(--text-bright);margin-bottom:6px;">Secure your Hall</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:24px;">Create a passphrase to protect your local dispatch log. You'll enter this each time you open Hall Monitor.</div>
       <div style="margin-bottom:12px;">
         <input type="password" id="passphrase-new" placeholder="New passphrase" autocomplete="new-password"
           style="width:100%;padding:9px 12px;background:var(--bg-raised);border:1px solid var(--bg-border);border-radius:var(--radius-sm);color:var(--text-primary);font-size:13px;outline:none;" />
@@ -157,17 +166,17 @@
       <span class="nav-label">Coordination</span>
     </div>
 
-    <div class="nav-item" data-screen="profile">
-      <span class="nav-icon">◉</span>
-      <span class="nav-label">My Profile</span>
+    <div class="nav-item" data-screen="enroll">
+      <span class="nav-icon">+</span>
+      <span class="nav-label">Enroll Worker</span>
     </div>
 
     <div class="nav-spacer"></div>
     <div class="nav-divider"></div>
 
-    <div class="nav-item" data-screen="enroll">
-      <span class="nav-icon">+</span>
-      <span class="nav-label">Enroll Worker</span>
+    <div class="nav-item" data-screen="profile">
+      <span class="nav-icon">◉</span>
+      <span class="nav-label">My Profile</span>
     </div>
     <div class="nav-item" data-screen="config">
       <span class="nav-icon">⚙</span>
@@ -263,11 +272,14 @@
         </span>
       </div>
 
-      <div style="margin-top:16px; display:flex; gap:8px;">
+      <div style="margin-top:16px; display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn btn-primary btn-sm" id="btn-start-server" style="display:none;">Start Hall Server</button>
+        <button class="btn btn-ghost btn-sm" id="btn-stop-server" style="display:none;">Stop Hall Server</button>
         <button class="btn btn-secondary btn-sm" id="btn-go-config-from-status">Open Hall Config</button>
         <button class="btn btn-ghost btn-sm" id="btn-go-feed-from-status">View Live Feed</button>
         <button class="btn btn-ghost btn-sm" id="btn-open-log-from-status" style="display:none;">Open Log File</button>
       </div>
+      <div id="status-server-start-msg" style="margin-top:6px; font-size:11px; color:var(--text-dim); font-family:monospace; display:none;"></div>
       <div id="status-log-path-display" style="margin-top:6px; font-size:11px; color:var(--text-dim); font-family:monospace; display:none;"></div>
     </section>
 
@@ -591,8 +603,8 @@
         <span class="screen-title">Configuration</span>
       </div>
 
-      <!-- Hall Connection -->
-      <div class="config-section">
+      <!-- Hall Connection — full width -->
+      <div class="config-section config-section-full">
         <div class="config-section-title">Hall Connection</div>
 
         <div class="field">
@@ -627,58 +639,72 @@
           </select>
         </div>
 
+        <div class="field">
+          <label>Server Start Command</label>
+          <input type="text" id="cfg-server-start-cmd" value="pyhall start" style="font-family:monospace;" placeholder="pyhall start" />
+          <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">Command to launch the Hall Server. Used by the Start Server button.</div>
+        </div>
+
         <div style="display:flex; gap:8px; align-items:center;">
           <button class="btn btn-secondary btn-sm" id="btn-test-connection">Test Connection</button>
           <span id="test-result-display"></span>
         </div>
       </div>
 
-      <!-- Notifications -->
-      <div class="config-section">
-        <div class="config-section-title">Notifications</div>
-        <div class="field">
-          <label><input type="checkbox" id="notif-hall-offline" checked /> Desktop notification: Hall offline</label>
-        </div>
-        <div class="field">
-          <label><input type="checkbox" id="notif-worker-failure" checked /> Desktop notification: Worker failure spike</label>
-        </div>
-        <div class="field">
-          <label><input type="checkbox" id="notif-steward-hold" checked /> Desktop notification: Repeated steward holds</label>
-        </div>
-        <div class="field">
-          <label><input type="checkbox" id="notif-every-denial" /> Desktop notification: Every denied dispatch <span style="color:var(--text-muted);">(noisy)</span></label>
-        </div>
-      </div>
+      <!-- Row 2: Notifications + Display -->
+      <div class="config-grid-2col">
 
-      <!-- Display -->
-      <div class="config-section">
-        <div class="config-section-title">Display</div>
-        <div class="field">
-          <label><input type="checkbox" id="display-tray" checked /> Show Hall in system tray when minimized</label>
-        </div>
-        <div class="field">
-          <label><input type="checkbox" id="display-login" /> Launch at login</label>
-        </div>
-        <div class="field">
-          <label>Live feed max rows</label>
-          <input type="text" id="cfg-feed-max" value="500" style="width:100px;" />
-        </div>
-      </div>
-
-      <!-- Diagnostics -->
-      <div class="config-section">
-        <div class="config-section-title">Diagnostics</div>
-        <div class="field">
-          <label>Hall Server Log</label>
-          <div style="display:flex; gap:8px; align-items:center;">
-            <button class="btn btn-secondary btn-sm" id="btn-open-log">Open Log File</button>
-            <span id="log-path-display" style="font-size:11px; color:var(--text-dim); font-family:monospace;"></span>
+        <!-- Notifications -->
+        <div class="config-section">
+          <div class="config-section-title">Notifications</div>
+          <div class="field">
+            <label><input type="checkbox" id="notif-hall-offline" checked /> Hall offline</label>
+          </div>
+          <div class="field">
+            <label><input type="checkbox" id="notif-worker-failure" checked /> Worker failure spike</label>
+          </div>
+          <div class="field">
+            <label><input type="checkbox" id="notif-steward-hold" checked /> Repeated steward holds</label>
+          </div>
+          <div class="field">
+            <label><input type="checkbox" id="notif-every-denial" /> Every denied dispatch <span style="color:var(--text-muted);">(noisy)</span></label>
           </div>
         </div>
-      </div>
 
-      <!-- Security -->
-      <div class="config-section" id="config-security-section">
+        <!-- Display -->
+        <div class="config-section">
+          <div class="config-section-title">Display</div>
+          <div class="field">
+            <label><input type="checkbox" id="display-tray" checked /> System tray when minimized</label>
+          </div>
+          <div class="field">
+            <label><input type="checkbox" id="display-login" /> Launch at login</label>
+          </div>
+          <div class="field">
+            <label>Live feed max rows</label>
+            <input type="text" id="cfg-feed-max" value="500" style="width:80px;" />
+          </div>
+        </div>
+
+      </div><!-- /row 2 -->
+
+      <!-- Row 3: Diagnostics + Security -->
+      <div class="config-grid-2col">
+
+        <!-- Diagnostics -->
+        <div class="config-section">
+          <div class="config-section-title">Diagnostics</div>
+          <div class="field">
+            <label>Hall Server Log</label>
+            <div style="display:flex; gap:8px; align-items:center; margin-top:6px;">
+              <button class="btn btn-secondary btn-sm" id="btn-open-log">Open Log File</button>
+              <span id="log-path-display" style="font-size:11px; color:var(--text-dim); font-family:monospace;"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Security -->
+        <div class="config-section" id="config-security-section">
         <div class="config-section-title">Security</div>
 
         <!-- Change passphrase -->
@@ -715,10 +741,12 @@
             <button class="btn btn-ghost btn-sm" id="btn-change-passphrase-cancel">Cancel</button>
           </div>
         </div>
-      </div>
+        </div><!-- /security -->
 
-      <!-- Connected MCPs -->
-      <div class="config-section" id="config-mcp-section">
+      </div><!-- /row 3 -->
+
+      <!-- Connected MCPs — full width -->
+      <div class="config-section config-section-full" id="config-mcp-section">
         <div class="config-section-title">Connected MCPs</div>
         <div style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">
           Connect your own MCP servers. Hall governs all tool calls from connected servers.
